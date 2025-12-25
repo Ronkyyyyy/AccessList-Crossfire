@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACL: Crossfire - The Firewall Logic Game</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #000;
+            color: #ccc;
+            overflow: hidden;
+            user-select: none;
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        .card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); }
+        .selected-glow { box-shadow: 0 0 15px rgba(255, 255, 255, 0.3); transform: scale(1.05); z-index: 10; border-color: white !important; }
+        
+        .scan-line {
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 2px;
+            background: rgba(0, 255, 0, 0.3);
+            opacity: 0.5;
+            animation: scan 3s linear infinite;
+            pointer-events: none;
+            z-index: 50;
+        }
+        @keyframes scan { 0% { top: 0%; } 100% { top: 100%; } }
+
+        /* Modal Animation */
+        .modal-enter { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+        /* Slot Styles */
+        .slot { transition: all 0.2s; }
+        .slot:hover:not(.locked):not(.has-card) { background-color: rgba(255,255,255,0.05); }
+        .valid-target { border-color: #4ade80 !important; background-color: rgba(74, 222, 128, 0.1) !important; cursor: pointer; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col">
+
+    <!-- Game State Container -->
+    <div id="app" class="flex-1 flex flex-col relative overflow-hidden"></div>
+
+    <!-- SVG Icons -->
+    <svg style="display: none;">
+        <symbol id="icon-shield" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+        <symbol id="icon-alert" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></symbol>
+        <symbol id="icon-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="icon-unlock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="icon-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="9" y="9" width="6" height="6" fill="none" stroke="currentColor" stroke-width="2"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></symbol>
+        <symbol id="icon-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="icon-play" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="icon-rotate" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="icon-check" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="icon-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" stroke-width="2"/><line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="icon-server" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></symbol>
+    </svg>
+
+    <script>
+        // --- CONSTANTS & DATA ---
+        const DEPARTMENTS = [
+            { name: '営業部', color: 'text-red-400 border-red-500', id: 'sales' },
+            { name: '開発部', color: 'text-blue-400 border-blue-500', id: 'rnd' },
+            { name: '人事部', color: 'text-green-400 border-green-500', id: 'hr' },
+            { name: 'マーケティング', color: 'text-yellow-400 border-yellow-500', id: 'mktg' },
+            { name: '経理部', color: 'text-purple-400 border-purple-500', id: 'acct' }
+        ];
+
+        const INITIAL_HP = 10;
+        const MAX_ROUNDS = 3;
+        const MAX_ACTIONS = 3;
+
+        // Data Generators
+        let cardIdCounter = 0;
+        let packetIdCounter = 0;
+
+        function createCard(type, subType, label, value, score) {
+            return { id: `c-${cardIdCounter++}`, type, subType, label, value, score };
+        }
+
+        function generateDeck() {
+            let c = [], a = [];
+            // Actions
+            for(let i=0;i<12;i++) a.push(createCard('action', 'permit', 'PERMIT', 'permit'));
+            for(let i=0;i<8;i++) a.push(createCard('action', 'deny', 'DENY', 'deny'));
+
+            // Conditions
+            const addC = (sub, lbl, val, count, score) => {
+                for(let i=0;i<count;i++) c.push(createCard('condition', sub, lbl, val, score));
+            };
+            addC('source', '営業部', 'sales', 2);
+            addC('source', '開発部', 'rnd', 2);
+            addC('source', '人事部', 'hr', 2);
+            addC('source', 'マーケティング', 'mktg', 2);
+            addC('source', '経理部', 'acct', 2);
+            addC('source', 'ダークウェブ', 'darkweb', 2);
+            addC('source', '正体不明IP', 'unknown', 2);
+            addC('source', '競合他社', 'competitor', 1);
+            addC('source', '優良顧客', 'client', 1);
+            addC('source', 'Any External', 'external', 3);
+            addC('source', 'Any Internal', 'internal', 2);
+
+            addC('destination', '基幹DB', 'core_db', 2);
+            addC('destination', '共有ファイル鯖', 'fileserver', 2);
+            addC('destination', '営業部', 'sales', 1);
+            addC('destination', '開発部', 'rnd', 1);
+            addC('destination', 'Any Destination', 'any', 4);
+
+            addC('protocol', 'システム制御 (10)', 'system', 3, 10);
+            addC('protocol', '基幹DB同期 (10)', 'db_sync', 3, 10);
+            addC('protocol', 'セキュアファイル (5)', 'sftp', 3, 5);
+            addC('protocol', 'メール (2)', 'mail', 3, 2);
+            addC('protocol', 'Webアクセス (2)', 'http', 3, 2);
+            addC('protocol', 'Any Protocol', 'any', 2, 0);
+
+            return { 
+                conditions: c.sort(() => Math.random() - 0.5), 
+                actions: a.sort(() => Math.random() - 0.5) 
+            };
+        }
+
+        function generatePackets() {
+            const p = [];
+            const atk = (name, src, dst, proto, sc, dmg) => 
+                p.push({ id: `p-${packetIdCounter++}`, name, type: 'attack', source: src, destination: dst, protocol: proto, protocolScore: sc, scores: { hp: dmg, vp: 0 } });
+            const dept = (name, src, dst, proto, sc) => 
+                p.push({ id: `p-${packetIdCounter++}`, name, type: 'dept', source: src, destination: dst, protocol: proto, protocolScore: sc, scores: { hp: 0, vp: sc } });
+            
+            // Batch generation to ensure enough packets
+            const createBatch = () => {
+                atk('ランサムウェア', 'darkweb', 'backup', 'system', 10, 3);
+                atk('DDoS攻撃', 'proxy', 'fileserver', 'system', 10, 2);
+                atk('機密抜き取り', 'competitor', 'rnd', 'sftp', 5, 2);
+                atk('フィッシング', 'darkweb', 'mktg', 'http', 2, 1);
+                atk('ボットネット', 'unknown', 'hr', 'mail', 2, 1);
+                
+                dept('四半期売上', 'sales', 'core_db', 'db_sync', 10);
+                dept('マスターコード', 'rnd', 'core_db', 'system', 10);
+                dept('給与処理', 'hr', 'acct', 'db_sync', 10);
+                dept('キャンペーン', 'mktg', 'core_db', 'system', 10);
+                dept('決算処理', 'acct', 'core_db', 'db_sync', 10);
+                dept('契約書UP', 'sales', 'fileserver', 'sftp', 5);
+                dept('設計図保存', 'rnd', 'backup', 'sftp', 5);
+                dept('採用データ', 'hr', 'fileserver', 'sftp', 5);
+            };
+
+            // Generate double batch to avoid running out
+            createBatch();
+            createBatch();
+            
+            return p.sort(() => Math.random() - 0.5);
+        }
+
+        // --- STATE MANAGEMENT ---
+        const state = {
+            phase: 'home', 
+            round: 1,
+            hp: INITIAL_HP,
+            players: [],
+            board: [],
+            currentPackets: [],
+            processedPackets: [],
+            logs: [],
+            decks: { conditions: [], actions: [], packets: [] },
+            currentPlayerIdx: 0,
+            actionsLeft: MAX_ACTIONS,
+            selectedCard: null,
+            config: { players: 4, cpu: 3 },
+            cpuThinking: false,
+            roundSummary: null
+        };
+
+        // --- CORE FUNCTIONS ---
+        
+        // Helper: Draw cards with auto-replenish
+        function drawCard(type) {
+            let deck = type === 'condition' ? state.decks.conditions : state.decks.actions;
+            if (deck.length === 0) {
+                // Replenish from generator if empty
+                const newDeck = generateDeck();
+                if (type === 'condition') {
+                    state.decks.conditions = newDeck.conditions;
+                    deck = state.decks.conditions;
+                } else {
+                    state.decks.actions = newDeck.actions;
+                    deck = state.decks.actions;
+                }
+            }
+            return deck.pop();
+        }
+
+        // Helper: Draw packets with auto-replenish
+        function drawPackets(count) {
+            if (state.decks.packets.length < count) {
+                const newPackets = generatePackets();
+                state.decks.packets = state.decks.packets.concat(newPackets);
+            }
+            return state.decks.packets.splice(0, count);
+        }
+
+        function initGame() {
+            state.decks = generateDeck();
+            state.decks.packets = generatePackets();
+            state.round = 1;
+            state.hp = INITIAL_HP;
+            state.logs = ['システム起動...', 'ACLモジュール読み込み完了...'];
+            state.processedPackets = [];
+
+            // Players
+            const total = state.config.players;
+            const cpus = state.config.cpu;
+            state.players = [];
+            for (let i = 0; i < total; i++) {
+                const isCpu = i >= (total - cpus);
+                const dept = DEPARTMENTS[i];
+                const hand = [];
+                // Initial Draw using safe drawer
+                for(let k=0; k<5; k++) hand.push(drawCard('condition'));
+                for(let k=0; k<3; k++) hand.push(drawCard('action'));
+
+                state.players.push({
+                    id: i,
+                    name: dept.name,
+                    colorClass: dept.color,
+                    rawId: dept.id,
+                    score: 0,
+                    hand: hand,
+                    type: isCpu ? 'cpu' : 'human'
+                });
+            }
+
+            // Board
+            state.board = Array(7).fill(null).map((_, i) => ({
+                id: i,
+                action: null,
+                protocol: null,
+                source: null,
+                destination: null,
+                locked: false
+            }));
+
+            state.phase = 'disclosure';
+            state.currentPlayerIdx = 0;
+            state.actionsLeft = MAX_ACTIONS;
+            startDisclosure();
+        }
+
+        function startDisclosure() {
+            const count = state.players.length + 2;
+            state.currentPackets = drawPackets(count);
+            state.processedPackets = [];
+            state.phase = 'disclosure';
+            render();
+        }
+
+        function finishDisclosure() {
+            addLog(`ラウンド ${state.round} 開始: ${state.currentPackets.length}個のパケットを検知`);
+            state.phase = 'construction_1';
+            state.currentPlayerIdx = (state.round - 1) % state.players.length;
+            state.actionsLeft = MAX_ACTIONS;
+            state.selectedCard = null;
+            render();
+            checkCpuTurn();
+        }
+
+        function passTurn() {
+            if (state.phase === 'resolution') return;
+            
+            const startIdx = (state.round - 1) % state.players.length;
+            const nextIdx = (state.currentPlayerIdx + 1) % state.players.length;
+
+            if (nextIdx === startIdx) {
+                // Cycle complete
+                if (state.phase === 'construction_1') {
+                    addLog('フェーズ移行: アクション確定フェーズ (Phase 2)');
+                    state.phase = 'construction_2';
+                    state.currentPlayerIdx = startIdx; // Restart order
+                } else if (state.phase === 'construction_2') {
+                    addLog('構築終了。パケット解決を開始します...');
+                    state.phase = 'resolution';
+                    render();
+                    resolvePackets();
+                    return;
+                }
+            } else {
+                state.currentPlayerIdx = nextIdx;
+            }
+            
+            state.actionsLeft = MAX_ACTIONS;
+            state.selectedCard = null;
+            render();
+            checkCpuTurn();
+        }
+
+        function selectCard(card) {
+            if (state.players[state.currentPlayerIdx].type === 'cpu') return;
+            
+            // Phase 1 restriction: No Actions
+            if (state.phase === 'construction_1' && card.type === 'action') {
+                alert('フェーズ1ではアクションカードは使えません');
+                return;
+            }
+
+            state.selectedCard = (state.selectedCard && state.selectedCard.id === card.id) ? null : card;
+            render();
+        }
+
+        function placeCard(rowIdx, slotType) {
+            if (state.actionsLeft <= 0) return;
+            const card = state.selectedCard;
+            if (!card) return;
+
+            // Validation logic
+            const row = state.board[rowIdx];
+            if (row.locked) return;
+
+            // Slot matching
+            if (slotType === 'action' && card.type !== 'action') return;
+            if (slotType !== 'action' && card.type !== 'condition') return;
+            if (card.type === 'condition' && card.subType !== slotType) {
+                return;
+            }
+
+            // Execute placement
+            const player = state.players[state.currentPlayerIdx];
+            
+            // Return old card to hand if exists
+            const oldCard = row[slotType];
+            if (oldCard) player.hand.push(oldCard);
+
+            // Place new
+            row[slotType] = card;
+            if (slotType === 'action') {
+                row.locked = true;
+                addLog(`${player.name}: 行${rowIdx+1}を確定`);
+            } else {
+                addLog(`${player.name}: 行${rowIdx+1}に配置`);
+            }
+
+            // Remove from hand
+            player.hand = player.hand.filter(c => c.id !== card.id);
+            
+            state.actionsLeft--;
+            state.selectedCard = null;
+            render();
+            checkCpuTurn();
+        }
+
+        // --- CPU LOGIC ---
+        function checkCpuTurn() {
+            const player = state.players[state.currentPlayerIdx];
+            if (player.type === 'cpu' && state.phase.includes('construction')) {
+                state.cpuThinking = true;
+                render(); // Show thinking status
+                setTimeout(() => executeCpuMove(), 1000);
+            }
+        }
+
+        function executeCpuMove() {
+            if (state.actionsLeft <= 0) {
+                state.cpuThinking = false;
+                passTurn();
+                return;
+            }
+
+            const player = state.players[state.currentPlayerIdx];
+            // Filter usable cards
+            const validCards = player.hand.filter(c => {
+                if (state.phase === 'construction_1') return c.type === 'condition';
+                if (state.phase === 'construction_2') return true; // All cards valid in phase 2
+                return false;
+            });
+
+            if (validCards.length === 0) {
+                state.actionsLeft = 0; // Force pass
+                state.cpuThinking = false;
+                passTurn();
+                return;
+            }
+
+            // Try to find a valid slot
+            let moved = false;
+            for (let i = 0; i < 5; i++) { // Try 5 times
+                const card = validCards[Math.floor(Math.random() * validCards.length)];
+                // Find empty slot for this card type
+                const targetRow = state.board.find(r => {
+                    if (r.locked) return false;
+                    if (card.type === 'action') return (r.source || r.destination || r.protocol); // Only lock if cond exists
+                    // For conditions, prefer empty
+                    if (card.subType === 'source' && !r.source) return true;
+                    if (card.subType === 'destination' && !r.destination) return true;
+                    if (card.subType === 'protocol' && !r.protocol) return true;
+                    return false;
+                });
+
+                if (targetRow) {
+                    const slot = card.subType === 'permit' || card.subType === 'deny' ? 'action' : card.subType;
+                    // Apply Logic directly
+                    targetRow[slot] = card;
+                    if (slot === 'action') targetRow.locked = true;
+                    player.hand = player.hand.filter(c => c.id !== card.id);
+                    addLog(`CPU(${player.name}): 行${targetRow.id+1}を操作`);
+                    moved = true;
+                    break;
+                }
+            }
+
+            if (!moved) {
+                state.actionsLeft--; // Waste action
+                addLog(`CPU(${player.name}): 待機中...`);
+            } else {
+                state.actionsLeft--;
+            }
+
+            render();
+            // Continue turn
+            setTimeout(() => checkCpuTurn(), 800);
+        }
+
+        // --- RESOLUTION LOGIC ---
+        async function resolvePackets() {
+            const tempPlayers = [...state.players];
+            let damageTotal = 0;
+            const scoreGains = {};
+            tempPlayers.forEach(p => scoreGains[p.id] = 0);
+            
+            for (const pkt of state.currentPackets) {
+                await new Promise(r => setTimeout(r, 800)); // Delay
+                
+                let result = 'deny';
+                let matchedRowId = -1;
+
+                // Check Rows
+                for (const row of state.board) {
+                    if (!row.locked) continue;
+                    
+                    const srcMatch = !row.source || 
+                        row.source.value === 'internal' || 
+                        row.source.value === 'external' || 
+                        row.source.value === pkt.source ||
+                        (row.source.value === 'internal' && ['sales','rnd','hr','mktg','acct'].includes(pkt.source)) ||
+                        (row.source.value === 'external' && ['darkweb','unknown','competitor','client'].includes(pkt.source));
+
+                    const dstMatch = !row.destination || row.destination.value === 'any' || row.destination.value === pkt.destination;
+                    const protoMatch = !row.protocol || row.protocol.value === 'any' || row.protocol.value === pkt.protocol;
+
+                    if (srcMatch && dstMatch && protoMatch) {
+                        result = row.action.value; // permit or deny
+                        matchedRowId = row.id;
+                        break;
+                    }
+                }
+
+                // Log Result
+                state.processedPackets.push({ pid: pkt.id, result, rowId: matchedRowId });
+                render(); // Update UI for packet status
+
+                // Apply Effects
+                if (result === 'permit') {
+                    if (pkt.type === 'attack') {
+                        state.hp -= pkt.scores.hp;
+                        damageTotal += pkt.scores.hp;
+                        addLog(`[警告] 攻撃通過! HP-${pkt.scores.hp}`);
+                    } else if (pkt.type === 'dept') {
+                        const owner = tempPlayers.find(p => p.rawId === pkt.source);
+                        if (owner) {
+                            owner.score += pkt.scores.vp;
+                            scoreGains[owner.id] += pkt.scores.vp;
+                        }
+                    }
+                }
+            }
+
+            // Save summary for modal
+            state.roundSummary = {
+                damage: damageTotal,
+                scores: scoreGains
+            };
+
+            // Show summary modal
+            setTimeout(() => {
+                state.phase = 'round_summary';
+                render();
+            }, 1000);
+        }
+
+        function proceedToNextRound() {
+            if (state.hp <= 0) {
+                state.phase = 'gameover';
+            } else if (state.round >= MAX_ROUNDS) {
+                state.phase = 'victory';
+            } else {
+                // Reset Board & Replenish
+                state.board.forEach(r => {
+                    r.action = r.protocol = r.source = r.destination = null;
+                    r.locked = false;
+                });
+                state.players.forEach(p => {
+                    // Safe replenishment
+                    while(p.hand.filter(c=>c.type==='condition').length < 5) p.hand.push(drawCard('condition'));
+                    while(p.hand.filter(c=>c.type==='action').length < 3) p.hand.push(drawCard('action'));
+                });
+                state.round++;
+                state.phase = 'disclosure';
+                startDisclosure();
+            }
+            render();
+        }
+
+        function addLog(msg) {
+            state.logs.unshift(msg);
+            if(state.logs.length > 30) state.logs.pop();
+        }
+
+
+        // --- RENDERING (View) ---
+        
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = '';
+
+            if (state.phase === 'home') return renderHome(app);
+            if (state.phase === 'setup') return renderSetup(app);
+            
+            // Game Layout
+            const container = document.createElement('div');
+            container.className = 'flex flex-col h-full relative';
+
+            // Scanline effect
+            const scanline = document.createElement('div');
+            scanline.className = 'scan-line';
+            container.appendChild(scanline);
+
+            // 1. Header
+            container.innerHTML += renderHeader();
+
+            // 2. Main Area (Left: Log, Center: Board)
+            const main = document.createElement('div');
+            main.className = 'flex flex-1 overflow-hidden';
+            
+            // Left Panel (Packets & Logs)
+            main.innerHTML += renderLeftPanel();
+            
+            // Center Panel (Board)
+            main.appendChild(renderBoard());
+
+            container.appendChild(main);
+
+            // 3. Footer (Hand & Controls)
+            container.appendChild(renderFooter());
+
+            // 4. Modals
+            if (state.phase === 'disclosure') container.appendChild(renderDisclosureModal());
+            if (state.phase === 'round_summary') container.appendChild(renderRoundSummaryModal());
+            if (state.phase === 'gameover') container.appendChild(renderGameOverModal());
+            if (state.phase === 'victory') container.appendChild(renderVictoryModal());
+
+            app.appendChild(container);
+        }
+
+        function renderHome(root) {
+            root.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full relative bg-gray-900 text-green-500">
+                    <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(#0f0 1px, transparent 1px); background-size: 20px 20px;"></div>
+                    <h1 class="text-6xl font-bold mb-4 tracking-tighter text-white drop-shadow-[0_0_10px_rgba(0,255,0,0.5)]">ACL: CROSSFIRE</h1>
+                    <p class="text-xl mb-12">The Firewall Logic Game</p>
+                    <div class="flex flex-col gap-4 w-64">
+                        <button onclick="setPhase('setup')" class="px-6 py-4 bg-green-900/30 border-2 border-green-500 hover:bg-green-500 hover:text-black transition-all rounded font-bold text-lg flex items-center justify-center gap-2">
+                            <svg class="w-6 h-6"><use href="#icon-play"/></svg> GAME START
+                        </button>
+                        <button onclick="toggleRuleModal()" class="px-6 py-2 border border-gray-600 text-gray-400 hover:text-white rounded flex items-center justify-center gap-2">
+                            <svg class="w-4 h-4"><use href="#icon-server"/></svg> RULES
+                        </button>
+                    </div>
+                    
+                    <div id="ruleModal" class="hidden fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4" onclick="toggleRuleModal()">
+                        <div class="bg-gray-800 border border-green-500 p-6 rounded-lg max-w-lg text-sm text-gray-300" onclick="event.stopPropagation()">
+                            <h2 class="text-xl text-white font-bold mb-4 border-b border-gray-600 pb-2">ルール概要</h2>
+                            <p class="mb-2">あなたは企業のネットワーク管理者です。サイバー攻撃を防ぎつつ、自部署のデータを優先的に通してください。</p>
+                            <ul class="list-disc pl-5 space-y-2 mb-4">
+                                <li><span class="text-red-400">攻撃パケット</span>: 通すと会社HP減少。0で全員敗北。</li>
+                                <li><span class="text-blue-400">部署パケット</span>: 通すとそのプレイヤーの得点。</li>
+                                <li><span class="text-yellow-400">構築フェーズ</span>: カードを置いてACL(ルール)を作ります。</li>
+                                <li><span class="text-yellow-400">解決フェーズ</span>: 上から順に照合し、Permit/Denyを決定します。</li>
+                            </ul>
+                            <button onclick="toggleRuleModal()" class="w-full py-2 bg-gray-700 hover:bg-gray-600 text-white rounded">閉じる</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSetup(root) {
+            const { players, cpu } = state.config;
+            root.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full bg-black text-gray-300">
+                    <div class="bg-gray-900 border border-gray-700 rounded-lg p-8 w-full max-w-md card-shadow">
+                        <h2 class="text-2xl font-bold text-white mb-6 flex items-center gap-2"><svg class="w-6 h-6"><use href="#icon-cpu"/></svg> SYSTEM CONFIG</h2>
+                        <div class="mb-6">
+                            <label class="block text-green-400 font-bold mb-2">総プレイヤー数: <span id="disp-p">${players}</span></label>
+                            <div class="flex gap-2">
+                                ${[1,2,3,4].map(n => `<button onclick="updateConfig('p', ${n})" class="flex-1 py-2 border rounded ${players===n?'bg-green-600 border-green-500 text-black':'bg-black border-gray-700'}">${n}</button>`).join('')}
+                            </div>
+                        </div>
+                        <div class="mb-8">
+                            <label class="block text-blue-400 font-bold mb-2">うちCOM人数: <span id="disp-c">${cpu}</span></label>
+                            <div class="flex gap-2">
+                                ${[0,1,2,3].filter(n => n < players || (players===1 && n===0)).map(n => `<button onclick="updateConfig('c', ${n})" class="flex-1 py-2 border rounded ${cpu===n?'bg-blue-600 border-blue-500 text-white':'bg-black border-gray-700'}">${n}</button>`).join('')}
+                            </div>
+                        </div>
+                        <button onclick="initGame()" class="w-full py-3 bg-green-700 hover:bg-green-600 text-white font-bold rounded">INITIALIZE SYSTEM</button>
+                        <button onclick="setPhase('home')" class="w-full py-2 mt-2 text-gray-500 hover:text-white">BACK</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderHeader() {
+            const hpWidth = Math.max(0, (state.hp / 10) * 100);
+            const hpColor = state.hp < 4 ? 'bg-red-500' : 'bg-green-500';
+            const iconColor = state.hp < 4 ? 'text-red-500 animate-pulse' : 'text-green-500';
+            
+            const playerBadges = state.players.map(p => `
+                <div class="flex flex-col items-center px-2 py-1 border rounded min-w-[50px] ${p.id === state.currentPlayerIdx ? 'border-white bg-gray-800' : 'border-transparent opacity-50'}">
+                    <span class="text-[10px] ${p.colorClass} flex items-center gap-1">
+                        <svg class="w-3 h-3"><use href="#icon-${p.type === 'cpu' ? 'cpu' : 'user'}"/></svg> ${p.name}
+                    </span>
+                    <span class="font-bold text-white">${p.score}</span>
+                </div>
+            `).join('');
+
+            return `
+                <header class="bg-gray-900 border-b border-gray-800 p-2 h-16 flex justify-between items-center shrink-0 z-20">
+                    <div class="flex items-center gap-4">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-6 h-6 ${iconColor}"><use href="#icon-shield"/></svg>
+                            <div>
+                                <div class="text-[10px] text-gray-500">SECURITY LEVEL</div>
+                                <div class="h-2 w-32 bg-gray-800 rounded-full overflow-hidden">
+                                    <div class="h-full transition-all duration-500 ${hpColor}" style="width: ${hpWidth}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="border-l border-gray-700 pl-4 text-white">
+                            <div class="text-[10px] text-gray-500">ROUND</div>
+                            <span class="text-xl font-bold">${state.round}/${MAX_ROUNDS}</span>
+                        </div>
+                        <div class="border-l border-gray-700 pl-4 text-white">
+                            <div class="text-[10px] text-gray-500">PHASE</div>
+                            <span class="text-lg font-mono uppercase">${state.phase.replace('_', ' ')}</span>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">${playerBadges}</div>
+                </header>
+            `;
+        }
+
+        function renderLeftPanel() {
+            const packets = state.currentPackets.map(pkt => {
+                const processed = state.processedPackets.find(r => r.pid === pkt.id);
+                let statusClass = 'border-gray-700 bg-gray-800 text-gray-400';
+                let icon = '';
+                
+                if (processed) {
+                    if (processed.result === 'permit') {
+                        statusClass = pkt.type === 'attack' ? 'border-red-600 bg-red-900/30 text-red-300' : 'border-blue-600 bg-blue-900/30 text-blue-300';
+                        icon = `<svg class="w-4 h-4"><use href="#icon-check"/></svg>`;
+                    } else {
+                        statusClass = 'border-gray-600 bg-gray-900 text-gray-600 opacity-50 line-through';
+                        icon = `<svg class="w-4 h-4"><use href="#icon-x"/></svg>`;
+                    }
+                }
+
+                return `
+                    <div class="p-2 border-l-4 mb-1 text-xs font-mono transition-all ${statusClass}">
+                        <div class="flex items-center gap-2">
+                            <div class="w-4 font-bold ${pkt.type==='attack'?'text-red-500':'text-blue-500'}">${pkt.type==='attack'?'!':'D'}</div>
+                            <div class="flex-1 font-bold truncate">${pkt.name}</div>
+                            <div class="w-6 text-right font-bold">${pkt.protocolScore}pt</div>
+                            <div class="w-4">${icon}</div>
+                        </div>
+                        <div class="mt-1 flex gap-1 text-[10px] opacity-70 border-t border-gray-600/50 pt-1">
+                            <span class="text-yellow-500">Src:${pkt.source}</span>
+                            <span class="text-purple-500">Dst:${pkt.destination}</span>
+                            <span class="text-cyan-500">Pr:${pkt.protocol}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const logLines = state.logs.map(l => `<div class="mb-1 text-green-500/80">&gt; ${l}</div>`).join('');
+
+            return `
+                <div class="w-1/4 min-w-[280px] border-r border-gray-800 bg-gray-950 flex flex-col z-10">
+                    <div class="p-2 border-b border-gray-800 font-bold flex items-center gap-2 text-xs text-gray-500">TRAFFIC MONITOR</div>
+                    <div class="flex-1 overflow-y-auto p-2 scrollbar-hide">${packets}</div>
+                    <div class="h-1/3 border-t border-gray-800 bg-black p-2 font-mono text-xs overflow-y-auto">${logLines}</div>
+                </div>
+            `;
+        }
+
+        function renderBoard() {
+            const boardDiv = document.createElement('div');
+            boardDiv.className = 'flex-1 overflow-y-auto p-4 bg-gray-900/50 flex flex-col items-center relative';
+            
+            let html = `
+                <div class="mb-4 text-center">
+                    <h2 class="text-xl font-bold mb-1 text-white">ACCESS-LIST 100</h2>
+                    <p class="text-xs text-gray-500">Top-down processing. First match applies.</p>
+                </div>
+                <div class="space-y-2 pb-24">
+                    <div class="flex gap-2 text-[10px] uppercase tracking-widest text-gray-500 justify-center">
+                        <div class="w-24 text-center">Action</div>
+                        <div class="w-24 text-center">Protocol</div>
+                        <div class="w-24 text-center">Source</div>
+                        <div class="w-24 text-center">Destination</div>
+                        <div class="w-6"></div>
+                    </div>
+            `;
+
+            state.board.forEach((row, i) => {
+                const isLocked = row.locked;
+                const rowBg = isLocked ? 'bg-black/40 border-gray-700' : 'border-transparent';
+                
+                const renderSlot = (type, label) => {
+                    const card = row[type];
+                    const isValidTarget = state.selectedCard && !card && !isLocked && (
+                        (type === 'action' && state.selectedCard.type === 'action') ||
+                        (type !== 'action' && state.selectedCard.subType === type)
+                    );
+                    
+                    let content = `<div class="text-[10px] text-gray-700">${label}</div>`;
+                    if (card) {
+                        content = renderCardHTML(card, false, false);
+                    } else if (isLocked && type === 'action') {
+                        content = `<svg class="w-4 h-4 text-gray-600"><use href="#icon-lock"/></svg>`;
+                    }
+
+                    return `
+                        <div onclick="placeCard(${i}, '${type}')" 
+                             class="slot w-24 h-32 border-2 border-dashed rounded flex items-center justify-center 
+                             ${card ? 'border-none has-card' : 'border-gray-700'} 
+                             ${isValidTarget ? 'valid-target' : ''}">
+                             ${content}
+                        </div>
+                    `;
+                };
+
+                html += `
+                    <div class="flex gap-2 p-2 border rounded transition-all ${rowBg}">
+                        <div class="flex items-center justify-center w-6 text-gray-600 font-mono text-xs">${i+10}</div>
+                        ${renderSlot('action', 'ACTION')}
+                        ${renderSlot('protocol', 'PROTO')}
+                        ${renderSlot('source', 'SOURCE')}
+                        ${renderSlot('destination', 'DEST')}
+                        <div class="flex items-center justify-center w-6 text-gray-700">
+                            <svg class="w-4 h-4 ${isLocked?'text-red-500':'text-gray-700'}"><use href="#icon-${isLocked?'lock':'unlock'}"/></svg>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `
+                <div class="flex gap-2 p-2 opacity-50 pointer-events-none">
+                    <div class="w-6 text-xs flex items-center justify-center text-gray-600">99</div>
+                    <div class="w-24 h-8 bg-red-900/20 border border-red-900 flex items-center justify-center text-red-500 font-mono text-xs">DENY</div>
+                    <div class="w-24 h-8 bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-500 font-mono text-xs">ANY</div>
+                    <div class="w-24 h-8 bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-500 font-mono text-xs">ANY</div>
+                    <div class="w-24 h-8 bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-500 font-mono text-xs">ANY</div>
+                </div>
+            </div>`;
+
+            boardDiv.innerHTML = html;
+            return boardDiv;
+        }
+
+        function renderFooter() {
+            const footer = document.createElement('div');
+            footer.className = 'bg-gray-900 border-t border-gray-800 p-4 shrink-0 h-64 flex gap-4 z-20';
+            
+            const player = state.players[state.currentPlayerIdx];
+            const isCpu = player.type === 'cpu';
+
+            let handHtml = '';
+            if (isCpu) {
+                handHtml = player.hand.map(() => `
+                    <div class="w-24 h-32 bg-gray-800 border-2 border-gray-700 rounded flex items-center justify-center">
+                        <svg class="w-8 h-8 text-gray-600 animate-pulse"><use href="#icon-cpu"/></svg>
+                    </div>
+                `).join('');
+            } else {
+                handHtml = player.hand.map(card => {
+                    const isSelected = state.selectedCard && state.selectedCard.id === card.id;
+                    return `<div onclick="selectCardById('${card.id}')">${renderCardHTML(card, isSelected, true)}</div>`;
+                }).join('');
+            }
+
+            footer.innerHTML = `
+                <div class="w-48 flex flex-col justify-between shrink-0">
+                    <div>
+                        <div class="text-sm font-bold mb-1 flex items-center gap-2 ${player.colorClass}">
+                            <svg class="w-4 h-4"><use href="#icon-${isCpu?'cpu':'user'}"/></svg> ${player.name} の手番
+                        </div>
+                        <div class="text-xs text-gray-500 mb-2">残アクション: ${state.actionsLeft}</div>
+                        <div class="text-[10px] text-gray-400">
+                            ${state.phase==='construction_1' ? 'フェーズ1: 条件を配置' : 'フェーズ2: アクションで確定'}
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <button onclick="passTurn()" ${isCpu || state.phase === 'resolution' ? 'disabled' : ''} class="w-full py-2 bg-gray-800 hover:bg-gray-700 text-white border border-gray-600 rounded flex items-center justify-center gap-2 disabled:opacity-50">
+                            <svg class="w-4 h-4"><use href="#icon-play"/></svg> ターン終了
+                        </button>
+                        <button onclick="cancelSelect()" ${isCpu ? 'disabled' : ''} class="w-full py-1 text-xs text-gray-500 hover:text-white flex items-center justify-center gap-2 disabled:opacity-50">
+                            <svg class="w-3 h-3"><use href="#icon-rotate"/></svg> 選択解除
+                        </button>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-x-auto flex gap-2 items-center px-4 bg-black/30 rounded inner-shadow scrollbar-thin">
+                    ${handHtml}
+                </div>
+            `;
+            return footer;
+        }
+
+        function renderCardHTML(card, isSelected, interactive) {
+            let color = 'border-cyan-600 text-cyan-400';
+            if(card.type === 'action') color = card.subType === 'permit' ? 'border-blue-500 text-blue-400' : 'border-red-500 text-red-400';
+            else if(card.subType === 'source') color = 'border-yellow-600 text-yellow-500';
+            else if(card.subType === 'destination') color = 'border-purple-600 text-purple-400';
+
+            const scoreBadge = card.score ? `<div class="absolute top-1 right-1 bg-gray-800 rounded px-1 text-[9px] text-white">${card.score}pt</div>` : '';
+            const cursor = interactive ? 'cursor-pointer' : 'cursor-default';
+            const selectedClass = isSelected ? 'selected-glow z-10' : 'opacity-90';
+
+            return `
+                <div class="relative bg-gray-900 border-2 ${color} rounded w-24 h-32 text-xs flex flex-col justify-between p-1 ${cursor} transition-all hover:-translate-y-1 select-none ${selectedClass}">
+                    <div class="font-bold uppercase tracking-tighter opacity-70 text-[10px]">${card.subType}</div>
+                    <div class="font-mono font-bold leading-tight text-center my-auto break-words">${card.label}</div>
+                    ${scoreBadge}
+                    <div class="bg-black text-green-500 font-mono text-[9px] px-1 truncate w-full">&gt; ${card.value}</div>
+                </div>
+            `;
+        }
+
+        function renderDisclosureModal() {
+            const div = document.createElement('div');
+            div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 modal-enter';
+            
+            const packetsHtml = state.currentPackets.map(pkt => `
+                <div class="flex items-center gap-2 p-2 border-l-4 mb-1 text-xs font-mono bg-gray-900 border-gray-700 text-gray-300">
+                    <div class="w-4 font-bold ${pkt.type==='attack'?'text-red-500':'text-blue-500'}">${pkt.type==='attack'?'!':'D'}</div>
+                    <div class="flex-1 font-bold">${pkt.name}</div>
+                    <div class="text-xs text-gray-500">Src:${pkt.source}</div>
+                    <div class="text-xs text-gray-500">Dst:${pkt.destination}</div>
+                    <div class="font-bold">${pkt.protocolScore}pt</div>
+                </div>
+            `).join('');
+
+            div.innerHTML = `
+                <div class="bg-gray-900 border border-green-500/50 rounded-lg max-w-lg w-full shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+                    <div class="bg-gray-800 p-4 border-b border-gray-700 text-center">
+                        <h2 class="text-xl font-bold text-yellow-400 animate-pulse flex items-center justify-center gap-2">
+                            <svg class="w-5 h-5"><use href="#icon-alert"/></svg> パケット検知: ラウンド ${state.round}
+                        </h2>
+                    </div>
+                    <div class="p-4 overflow-y-auto flex-1 space-y-2">
+                        ${packetsHtml}
+                    </div>
+                    <div class="p-4 bg-gray-800 border-t border-gray-700 text-center">
+                        <button onclick="finishDisclosure()" class="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold w-full">対策を開始する</button>
+                    </div>
+                </div>
+            `;
+            return div;
+        }
+
+        function renderRoundSummaryModal() {
+            const div = document.createElement('div');
+            div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 modal-enter';
+            
+            const { damage, scores } = state.roundSummary;
+            
+            let scoresHtml = '';
+            state.players.forEach(p => {
+                const gain = scores[p.id];
+                scoresHtml += `
+                    <div class="flex justify-between items-center p-2 border-b border-gray-700 text-sm">
+                        <span class="${p.colorClass}">${p.name}</span>
+                        <span class="font-bold text-green-400">+${gain}pt</span>
+                    </div>
+                `;
+            });
+
+            div.innerHTML = `
+                <div class="bg-gray-900 border border-blue-500/50 rounded-lg max-w-md w-full shadow-2xl overflow-hidden">
+                    <div class="bg-gray-800 p-4 border-b border-gray-700 text-center">
+                        <h2 class="text-xl font-bold text-white">ラウンド ${state.round} 結果</h2>
+                    </div>
+                    <div class="p-6">
+                        <div class="mb-6 bg-black/50 p-4 rounded border border-gray-700 text-center">
+                            <div class="text-xs text-gray-500 mb-1">セキュリティダメージ</div>
+                            <div class="text-2xl font-bold ${damage > 0 ? 'text-red-500' : 'text-green-500'}">-${damage}</div>
+                            <div class="text-xs text-gray-500 mt-1">残りHP: ${state.hp}</div>
+                        </div>
+                        <div class="space-y-1 mb-6">
+                            <div class="text-xs text-gray-500 mb-2 border-b border-gray-700 pb-1">業績ポイント変動</div>
+                            ${scoresHtml}
+                        </div>
+                        <button onclick="proceedToNextRound()" class="w-full py-3 bg-green-700 hover:bg-green-600 text-white rounded font-bold">
+                            ${state.round >= MAX_ROUNDS || state.hp <= 0 ? '最終結果へ' : '次のラウンドへ'}
+                        </button>
+                    </div>
+                </div>
+            `;
+            return div;
+        }
+
+        function renderGameOverModal() {
+            const div = document.createElement('div');
+            div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 modal-enter text-center';
+            div.innerHTML = `
+                <div class="text-red-500">
+                    <svg class="w-20 h-20 mx-auto mb-4"><use href="#icon-alert"/></svg>
+                    <h1 class="text-5xl font-bold mb-4">SYSTEM FAILURE</h1>
+                    <p class="text-xl text-gray-300 mb-8">セキュリティが突破されました。<br>会社は倒産しました...</p>
+                    <button onclick="setPhase('home')" class="px-8 py-3 border border-red-500 hover:bg-red-900 text-white rounded">REBOOT SYSTEM</button>
+                </div>
+            `;
+            return div;
+        }
+
+        function renderVictoryModal() {
+            const sorted = [...state.players].sort((a,b) => b.score - a.score);
+            const div = document.createElement('div');
+            div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 modal-enter text-center';
+            
+            const ranking = sorted.map((p, i) => `
+                <div class="flex justify-between items-center p-3 rounded border w-64 mx-auto mb-2 ${i===0?'border-yellow-500 bg-yellow-900/20':'border-gray-700'}">
+                    <span class="${p.colorClass}">${p.name}</span>
+                    <span class="font-bold text-white">${p.score}pt</span>
+                </div>
+            `).join('');
+
+            div.innerHTML = `
+                <div class="text-green-500">
+                    <svg class="w-20 h-20 mx-auto mb-4"><use href="#icon-shield"/></svg>
+                    <h1 class="text-4xl font-bold mb-4">SYSTEM SECURE</h1>
+                    <p class="text-lg text-gray-300 mb-6">全ラウンド終了。脅威を排除しました。</p>
+                    <div class="mb-8">${ranking}</div>
+                    <button onclick="setPhase('home')" class="px-8 py-3 border border-green-500 hover:bg-green-900 text-white rounded">MAIN MENU</button>
+                </div>
+            `;
+            return div;
+        }
+
+        // --- HELPERS & HANDLERS ---
+        window.setPhase = (p) => { state.phase = p; render(); };
+        window.initGame = initGame;
+        window.finishDisclosure = finishDisclosure;
+        window.passTurn = passTurn;
+        window.placeCard = placeCard;
+        window.proceedToNextRound = proceedToNextRound;
+        window.updateConfig = (key, val) => {
+            if(key === 'p') {
+                state.config.players = val;
+                if(state.config.cpu >= val) state.config.cpu = val - 1;
+            }
+            if(key === 'c') state.config.cpu = val;
+            render();
+        };
+        window.toggleRuleModal = () => {
+            const el = document.getElementById('ruleModal');
+            el.classList.toggle('hidden');
+        };
+        window.selectCardById = (id) => {
+            const player = state.players[state.currentPlayerIdx];
+            const card = player.hand.find(c => c.id === id);
+            if(card) selectCard(card);
+        };
+        window.cancelSelect = () => {
+            state.selectedCard = null;
+            render();
+        };
+
+        // Initial Render
+        render();
+
+    </script>
+</body>
+</html>
