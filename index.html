@@ -47,6 +47,42 @@
         .slot:hover:not(.locked):not(.has-card) { background-color: rgba(255,255,255,0.05); }
         .valid-target { border-color: #4ade80 !important; background-color: rgba(74, 222, 128, 0.1) !important; cursor: pointer; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+        /* Packet Highlights */
+        /* Relevant to Player (Yellow) - No background change requested */
+        .packet-relevant {
+            border-right-width: 4px;
+            border-right-color: #fbbf24; /* yellow-400 */
+            position: relative;
+        }
+        .packet-relevant::after {
+            content: "★";
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #fbbf24;
+            font-size: 10px;
+            opacity: 0.8;
+        }
+
+        /* Attack on Company (Red) */
+        .packet-attack-highlight {
+            border-right-width: 4px;
+            border-right-color: #ef4444; /* red-500 */
+            position: relative;
+        }
+        .packet-attack-highlight::after {
+            content: "!";
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #ef4444;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
     </style>
 </head>
 <body class="h-screen w-screen flex flex-col">
@@ -72,11 +108,11 @@
     <script>
         // --- CONSTANTS & DATA ---
         const DEPARTMENTS = [
-            { name: '営業部', color: 'text-red-400 border-red-500', id: 'sales' },
-            { name: '開発部', color: 'text-blue-400 border-blue-500', id: 'rnd' },
-            { name: '人事部', color: 'text-green-400 border-green-500', id: 'hr' },
-            { name: 'マーケティング', color: 'text-yellow-400 border-yellow-500', id: 'mktg' },
-            { name: '経理部', color: 'text-purple-400 border-purple-500', id: 'acct' }
+            { name: '営業部 (Sales)', color: 'text-red-400 border-red-500', id: 'sales' },
+            { name: '開発部 (R&D)', color: 'text-blue-400 border-blue-500', id: 'rnd' },
+            { name: '人事部 (HR)', color: 'text-green-400 border-green-500', id: 'hr' },
+            { name: 'マーケ部 (Mktg)', color: 'text-yellow-400 border-yellow-500', id: 'mktg' },
+            { name: '経理部 (Acct)', color: 'text-purple-400 border-purple-500', id: 'acct' }
         ];
 
         const INITIAL_HP = 10;
@@ -101,11 +137,11 @@
             const addC = (sub, lbl, val, count, score) => {
                 for(let i=0;i<count;i++) c.push(createCard('condition', sub, lbl, val, score));
             };
-            addC('source', '営業部', 'sales', 2);
-            addC('source', '開発部', 'rnd', 2);
-            addC('source', '人事部', 'hr', 2);
-            addC('source', 'マーケティング', 'mktg', 2);
-            addC('source', '経理部', 'acct', 2);
+            addC('source', '営業部 (Sales)', 'sales', 2);
+            addC('source', '開発部 (R&D)', 'rnd', 2);
+            addC('source', '人事部 (HR)', 'hr', 2);
+            addC('source', 'マーケ部 (Mktg)', 'mktg', 2);
+            addC('source', '経理部 (Acct)', 'acct', 2);
             addC('source', 'ダークウェブ', 'darkweb', 2);
             addC('source', '正体不明IP', 'unknown', 2);
             addC('source', '競合他社', 'competitor', 1);
@@ -115,8 +151,8 @@
 
             addC('destination', '基幹DB', 'core_db', 2);
             addC('destination', '共有ファイル鯖', 'fileserver', 2);
-            addC('destination', '営業部', 'sales', 1);
-            addC('destination', '開発部', 'rnd', 1);
+            addC('destination', '営業部 (Sales)', 'sales', 1);
+            addC('destination', '開発部 (R&D)', 'rnd', 1);
             addC('destination', 'Any Destination', 'any', 4);
 
             addC('protocol', 'システム制御 (10)', 'system', 3, 10);
@@ -132,20 +168,41 @@
             };
         }
 
-        function generatePackets() {
+        function generatePackets(activeDeptIds) {
             const p = [];
-            const atk = (name, src, dst, proto, sc, dmg) => 
-                p.push({ id: `p-${packetIdCounter++}`, name, type: 'attack', source: src, destination: dst, protocol: proto, protocolScore: sc, scores: { hp: dmg, vp: 0 } });
-            const dept = (name, src, dst, proto, sc) => 
-                p.push({ id: `p-${packetIdCounter++}`, name, type: 'dept', source: src, destination: dst, protocol: proto, protocolScore: sc, scores: { hp: 0, vp: sc } });
             
-            // Batch generation to ensure enough packets
+            // Check if department is active (in play)
+            const isDeptActive = (id) => activeDeptIds.includes(id);
+
+            const atk = (name, src, dst, proto, sc, dmg) => {
+                // Filter: Don't create attack packets targeting inactive departments
+                // Note: 'backup', 'fileserver', etc are not in DEPARTMENTS list, so they are always valid targets
+                const isTargetDept = DEPARTMENTS.some(d => d.id === dst);
+                if (isTargetDept && !isDeptActive(dst)) return;
+                
+                p.push({ id: `p-${packetIdCounter++}`, name, type: 'attack', source: src, destination: dst, protocol: proto, protocolScore: sc, scores: { hp: dmg, vp: 0 } });
+            };
+
+            const dept = (name, src, dst, proto, sc) => {
+                // Filter: Don't create dept packets from inactive departments
+                if (!isDeptActive(src)) return;
+                // Also optionally filter if destination is an inactive department?
+                // Logic: If I send mail to HR but HR is not playing, can I still score? 
+                // Usually yes (I sent it), but for gameplay focus, let's keep it to active depts mostly.
+                const isDestDept = DEPARTMENTS.some(d => d.id === dst);
+                if (isDestDept && !isDeptActive(dst)) return;
+
+                p.push({ id: `p-${packetIdCounter++}`, name, type: 'dept', source: src, destination: dst, protocol: proto, protocolScore: sc, scores: { hp: 0, vp: sc } });
+            };
+            
+            // Batch generation
             const createBatch = () => {
                 atk('ランサムウェア', 'darkweb', 'backup', 'system', 10, 3);
                 atk('DDoS攻撃', 'proxy', 'fileserver', 'system', 10, 2);
                 atk('機密抜き取り', 'competitor', 'rnd', 'sftp', 5, 2);
                 atk('フィッシング', 'darkweb', 'mktg', 'http', 2, 1);
                 atk('ボットネット', 'unknown', 'hr', 'mail', 2, 1);
+                atk('不正アクセス', 'unknown', 'sales', 'http', 5, 2);
                 
                 dept('四半期売上', 'sales', 'core_db', 'db_sync', 10);
                 dept('マスターコード', 'rnd', 'core_db', 'system', 10);
@@ -155,9 +212,12 @@
                 dept('契約書UP', 'sales', 'fileserver', 'sftp', 5);
                 dept('設計図保存', 'rnd', 'backup', 'sftp', 5);
                 dept('採用データ', 'hr', 'fileserver', 'sftp', 5);
+                dept('顧客分析', 'mktg', 'sales', 'sftp', 5);
+                dept('請求書送付', 'acct', 'sales', 'mail', 2);
             };
 
-            // Generate double batch to avoid running out
+            // Generate triple batch to ensure enough packets after filtering
+            createBatch();
             createBatch();
             createBatch();
             
@@ -180,7 +240,8 @@
             selectedCard: null,
             config: { players: 4, cpu: 3 },
             cpuThinking: false,
-            roundSummary: null
+            roundSummary: null,
+            activeDeptIds: [] // Track which departments are in play
         };
 
         // --- CORE FUNCTIONS ---
@@ -189,7 +250,6 @@
         function drawCard(type) {
             let deck = type === 'condition' ? state.decks.conditions : state.decks.actions;
             if (deck.length === 0) {
-                // Replenish from generator if empty
                 const newDeck = generateDeck();
                 if (type === 'condition') {
                     state.decks.conditions = newDeck.conditions;
@@ -205,7 +265,7 @@
         // Helper: Draw packets with auto-replenish
         function drawPackets(count) {
             if (state.decks.packets.length < count) {
-                const newPackets = generatePackets();
+                const newPackets = generatePackets(state.activeDeptIds);
                 state.decks.packets = state.decks.packets.concat(newPackets);
             }
             return state.decks.packets.splice(0, count);
@@ -213,7 +273,7 @@
 
         function initGame() {
             state.decks = generateDeck();
-            state.decks.packets = generatePackets();
+            
             state.round = 1;
             state.hp = INITIAL_HP;
             state.logs = ['システム起動...', 'ACLモジュール読み込み完了...'];
@@ -223,6 +283,8 @@
             const total = state.config.players;
             const cpus = state.config.cpu;
             state.players = [];
+            state.activeDeptIds = [];
+
             for (let i = 0; i < total; i++) {
                 const isCpu = i >= (total - cpus);
                 const dept = DEPARTMENTS[i];
@@ -240,7 +302,11 @@
                     hand: hand,
                     type: isCpu ? 'cpu' : 'human'
                 });
+                state.activeDeptIds.push(dept.id);
             }
+
+            // Generate Packets AFTER knowing active departments
+            state.decks.packets = generatePackets(state.activeDeptIds);
 
             // Board
             state.board = Array(7).fill(null).map((_, i) => ({
@@ -451,7 +517,7 @@
                         row.source.value === 'internal' || 
                         row.source.value === 'external' || 
                         row.source.value === pkt.source ||
-                        (row.source.value === 'internal' && ['sales','rnd','hr','mktg','acct'].includes(pkt.source)) ||
+                        (row.source.value === 'internal' && state.activeDeptIds.includes(pkt.source)) ||
                         (row.source.value === 'external' && ['darkweb','unknown','competitor','client'].includes(pkt.source));
 
                     const dstMatch = !row.destination || row.destination.value === 'any' || row.destination.value === pkt.destination;
@@ -634,11 +700,13 @@
             const iconColor = state.hp < 4 ? 'text-red-500 animate-pulse' : 'text-green-500';
             
             const playerBadges = state.players.map(p => `
-                <div class="flex flex-col items-center px-2 py-1 border rounded min-w-[50px] ${p.id === state.currentPlayerIdx ? 'border-white bg-gray-800' : 'border-transparent opacity-50'}">
-                    <span class="text-[10px] ${p.colorClass} flex items-center gap-1">
-                        <svg class="w-3 h-3"><use href="#icon-${p.type === 'cpu' ? 'cpu' : 'user'}"/></svg> ${p.name}
+                <div class="flex flex-col items-center px-1 py-1 border rounded w-20 ${p.id === state.currentPlayerIdx ? 'border-white bg-gray-800' : 'border-transparent opacity-50'}">
+                    <span class="text-[9px] ${p.colorClass} flex items-center gap-1 w-full justify-center">
+                        <svg class="w-3 h-3"><use href="#icon-${p.type === 'cpu' ? 'cpu' : 'user'}"/></svg>
+                        <span class="font-bold text-gray-400">${p.type === 'cpu' ? '[COM]' : '[YOU]'}</span>
                     </span>
-                    <span class="font-bold text-white">${p.score}</span>
+                    <span class="text-[9px] ${p.colorClass} leading-tight text-center w-full truncate px-1">${p.name}</span>
+                    <span class="font-bold text-white text-xs">${p.score}</span>
                 </div>
             `).join('');
 
@@ -669,11 +737,20 @@
         }
 
         function renderLeftPanel() {
+            const currentPlayer = state.players[state.currentPlayerIdx];
+
             const packets = state.currentPackets.map(pkt => {
                 const processed = state.processedPackets.find(r => r.pid === pkt.id);
                 let statusClass = 'border-gray-700 bg-gray-800 text-gray-400';
                 let icon = '';
                 
+                // Highlights
+                const isRelevant = currentPlayer.rawId === pkt.source || currentPlayer.rawId === pkt.destination;
+                const isAttack = pkt.type === 'attack';
+                
+                // Add highlight classes
+                const highlightClass = isAttack ? 'packet-attack-highlight' : (isRelevant ? 'packet-relevant' : '');
+
                 if (processed) {
                     if (processed.result === 'permit') {
                         statusClass = pkt.type === 'attack' ? 'border-red-600 bg-red-900/30 text-red-300' : 'border-blue-600 bg-blue-900/30 text-blue-300';
@@ -685,7 +762,7 @@
                 }
 
                 return `
-                    <div class="p-2 border-l-4 mb-1 text-xs font-mono transition-all ${statusClass}">
+                    <div class="p-2 border-l-4 mb-1 text-xs font-mono transition-all ${statusClass} ${highlightClass}">
                         <div class="flex items-center gap-2">
                             <div class="w-4 font-bold ${pkt.type==='attack'?'text-red-500':'text-blue-500'}">${pkt.type==='attack'?'!':'D'}</div>
                             <div class="flex-1 font-bold truncate">${pkt.name}</div>
@@ -693,9 +770,9 @@
                             <div class="w-4">${icon}</div>
                         </div>
                         <div class="mt-1 flex gap-1 text-[10px] opacity-70 border-t border-gray-600/50 pt-1">
-                            <span class="text-yellow-500">Src:${pkt.source}</span>
-                            <span class="text-purple-500">Dst:${pkt.destination}</span>
-                            <span class="text-cyan-500">Pr:${pkt.protocol}</span>
+                            <span class="${currentPlayer.rawId === pkt.source ? 'text-yellow-300 font-bold' : 'text-yellow-600'}">Src:${pkt.source}</span>
+                            <span class="${currentPlayer.rawId === pkt.destination ? 'text-purple-300 font-bold' : 'text-purple-600'}">Dst:${pkt.destination}</span>
+                            <span class="text-cyan-600">Pr:${pkt.protocol}</span>
                         </div>
                     </div>
                 `;
@@ -813,6 +890,9 @@
                     <div>
                         <div class="text-sm font-bold mb-1 flex items-center gap-2 ${player.colorClass}">
                             <svg class="w-4 h-4"><use href="#icon-${isCpu?'cpu':'user'}"/></svg> ${player.name} の手番
+                        </div>
+                        <div class="text-xs text-green-400 font-bold mb-1 ml-6">
+                            ${isCpu ? '[COM]' : '[YOU]'}
                         </div>
                         <div class="text-xs text-gray-500 mb-2">残アクション: ${state.actionsLeft}</div>
                         <div class="text-[10px] text-gray-400">
